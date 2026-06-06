@@ -2,16 +2,16 @@ import os
 import gymnasium as gym
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 
 # ===================== 【稳走专用参数】 =====================
 ENV_NAME = "Humanoid-v4"
 MODEL_DIR = "models_stable"
 LOG_DIR = "logs_stable"
-TOTAL_TIMESTEPS = 8_000_000    # 训练800万步，足够学稳定
+TOTAL_TIMESTEPS = 8_000_000
 TEST_EPISODES = 20
-EVAL_FREQ = 20_000             # 频繁评估，只保留最稳的模型
+EVAL_FREQ = 20_000
 SAVE_FREQ = 200_000
 # ==========================================================
 
@@ -20,6 +20,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 BEST_MODEL_PATH = os.path.join(MODEL_DIR, "best_model")
 FINAL_MODEL_PATH = os.path.join(MODEL_DIR, "final_model")
+VEC_NORMALIZE_PATH = os.path.join(MODEL_DIR, "vec_normalize.pkl")
 
 # 动作平滑：解决关节突然发力导致的摔倒
 class ActionSmoothingWrapper(gym.ActionWrapper):
@@ -33,7 +34,7 @@ class ActionSmoothingWrapper(gym.ActionWrapper):
         self.last_action = smoothed
         return smoothed
 
-# 修复后的自定义奖励包装器
+# 自定义奖励包装器
 class CustomRewardWrapper(gym.RewardWrapper):
     def __init__(self, env):
         super().__init__(env)
@@ -42,16 +43,13 @@ class CustomRewardWrapper(gym.RewardWrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         data = self.env.unwrapped.data
-        # 前进奖励
+
         forward_reward = data.qvel[0] * 1.2
-        # 直立高度惩罚
         upright_penalty = -0.6 * abs(data.qpos[2] - 1.2)
-        # 功耗惩罚
         energy_penalty = -1e-3 * np.sum(np.square(data.ctrl))
-        # 动作剧烈变化惩罚
         action_smooth_pen = -0.01 * np.linalg.norm(action - self.last_action)
         self.last_action = action.copy()
-        # 组合总奖励
+
         total = forward_reward + upright_penalty + energy_penalty + action_smooth_pen + reward * 0.3
         total = np.clip(total, -5.0, 10.0)
         return obs, total, terminated, truncated, info
@@ -61,6 +59,15 @@ def make_env(render_mode="human"):
     env = ActionSmoothingWrapper(env, alpha=0.8)
     env = CustomRewardWrapper(env)
     env = DummyVecEnv([lambda: env])
+
+    # ===================== 第二次PR新增：标准化 =====================
+    env = VecNormalize(
+        env,
+        norm_obs=True,        # 观测标准化
+        norm_reward=True,     # 奖励标准化
+        clip_obs=10.0,
+        gamma=0.995
+    )
     return env
 
 def train_model(env):
@@ -107,6 +114,7 @@ def train_model(env):
     )
 
     model.save(FINAL_MODEL_PATH)
+    env.save(VEC_NORMALIZE_PATH)
     print(f"✅ 训练完成！最稳模型已保存到 {BEST_MODEL_PATH}")
     return model
 
@@ -137,12 +145,16 @@ def test_model(env):
 
 if __name__ == "__main__":
     try:
-        env = make_env(render_mode="human")
-        # 训练时启用下面train，测试启用testS
-        #train_model(env)
-        test_model(env)
+        # 训练关闭画面render_mode=None，不占用终端、可输入字符
+        #env_train = make_env(render_mode=None)
+        #train_model(env_train)
+        #env_train.close()
+
+        # 训练结束后取消下面注释即可开画面测试
+        env_test = make_env(render_mode="human")
+        test_model(env_test)
+        env_test.close()
     except KeyboardInterrupt:
         print("\n🛑 手动停止训练")
     finally:
-        env.close()
-        print("👋 环境已关闭")
+        pass
