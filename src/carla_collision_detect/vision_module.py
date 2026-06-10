@@ -91,21 +91,27 @@ class VisionSystem:
                         if distance <= radar_max_range:
                             current_seen_classes.add(cls_name)
             
-            newly_appeared = current_seen_classes - self.last_seen_classes
             current_time = time.time()
+
+            # 动态初始化追踪状态，避免修改 __init__ 影响其他已有功能
+            if not hasattr(self, 'last_seen_time'):
+                self.last_seen_time = {"person": 0.0, "car": 0.0}
+                self.has_alerted = {"person": False, "car": False}
+
+            # 遍历当前检测到的关键类别
+            for target_type in ["person", "car"]:
+                if target_type in current_seen_classes:
+                    if current_time - self.last_seen_time[target_type] > 3.0:
+                        self.has_alerted[target_type] = False
+
+                    if not self.has_alerted[target_type]:
+                        color = "\033[93m" if target_type == "person" else "\033[96m"
+                        name = "行人" if target_type == "person" else "车辆"
+                        print(f"{color}[视觉雷达] ⚠️ 正前方 {int(radar_max_range)} 米内发现{name}。\033[0m")
+                        self.has_alerted[target_type] = True
+
+                    self.last_seen_time[target_type] = current_time
             
-            # 配合距离过滤，更新了控制台的文案
-            if "person" in newly_appeared and current_time - self.last_alert_time.get("person", 0) > 3.0:
-                print(f"\033[93m[视觉雷达] ⚠️ 正前方 {int(radar_max_range)} 米内发现行人。\033[0m")
-                self.last_alert_time["person"] = current_time 
-                    
-            if "car" in newly_appeared and current_time - self.last_alert_time.get("car", 0) > 3.0:
-                print(f"\033[96m[视觉雷达] ⚠️ 正前方 {int(radar_max_range)} 米内发现车辆。\033[0m")
-                self.last_alert_time["car"] = current_time
-            
-            self.last_seen_classes = current_seen_classes
-            
-            # 替换原来画垂直直线的代码
             annotated_frame = results[0].plot()
             
             pt_horizon = (320, 240)      # 远方的地平线中心 (灭点)
@@ -116,6 +122,11 @@ class VisionSystem:
             cv2.line(annotated_frame, pt_horizon, pt_bottom_right, (0, 255, 0), 2)
             cv2.putText(annotated_frame, "Dynamic Perspective ROI", (100, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
+            v = self.ego_vehicle.get_velocity()
+            speed_kmh = 3.6 * (v.x**2 + v.y**2 + v.z**2)**0.5
+            cv2.putText(annotated_frame, f"Ego Speed: {speed_kmh:.1f} km/h", (20, 40), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2, cv2.LINE_AA)
+
             cv2.imshow("CARLA YOLOv8 Vision", annotated_frame)
             cv2.waitKey(1)
             

@@ -6,6 +6,7 @@ import keyboard
 import numpy as np
 from vision_module import VisionSystem
 from planner import LanePlanner
+from acc_module import ACCController
 
 def main():
     print("===================================")
@@ -55,26 +56,58 @@ def main():
         
         for sp in spawn_points:
             wp = world.get_map().get_waypoint(sp.location)
-            if not wp.is_junction:
+            if wp.is_junction:
+                continue
+                
+            is_perfect_straight = True
+            check_wp = wp
+            start_yaw = wp.transform.rotation.yaw  # 💡 新增：记录起始路点的绝对航向角
+            
+            for _ in range(8):
+                next_wps = check_wp.next(10.0)
+                # 条件 1：不能是断头路或十字路口
+                if not next_wps or next_wps[0].is_junction:
+                    is_perfect_straight = False
+                    break
+                    
+                # 💡 条件 2（核心修复）：弯道测谎仪！
+                current_yaw = next_wps[0].transform.rotation.yaw
+                yaw_diff = abs((current_yaw - start_yaw) % 360)
+                if yaw_diff > 180: 
+                    yaw_diff = 360 - yaw_diff
+                    
+                # 如果前方路点的朝向，和起点偏差超过 2 度，说明这是一条弯路，立刻抛弃！
+                if yaw_diff > 2.0:
+                    is_perfect_straight = False
+                    break
+                    
+                check_wp = next_wps[0]
+
+            # 2. 如果经过了重重考验，这 80 米是一条绝对纯正的直道
+            if is_perfect_straight:
                 target_wp = wp
+                current_lane_id = target_wp.lane_id
+                
+                # 靠左/靠右生成的逻辑 (带防逆行双黄线保护)
                 if spawn_side == "left":
-                    while target_wp.get_left_lane() and target_wp.get_left_lane().lane_type == carla.LaneType.Driving:
+                    while target_wp.get_left_lane() and target_wp.get_left_lane().lane_type == carla.LaneType.Driving and (target_wp.get_left_lane().lane_id * current_lane_id > 0):
                         target_wp = target_wp.get_left_lane()
                 else:
-                    while target_wp.get_right_lane() and target_wp.get_right_lane().lane_type == carla.LaneType.Driving:
+                    while target_wp.get_right_lane() and target_wp.get_right_lane().lane_type == carla.LaneType.Driving and (target_wp.get_right_lane().lane_id * current_lane_id > 0):
                         target_wp = target_wp.get_right_lane()
 
-                fwd_wps = target_wp.next(60.0)
-                if fwd_wps and not fwd_wps[0].is_junction:
-                    ego_spawn_point = target_wp.transform
-                    ego_spawn_point.location.z += 0.5
-                    target_waypoint = fwd_wps[0]
-                    break
+                # 3. 锁定主车生成点
+                ego_spawn_point = target_wp.transform
+                ego_spawn_point.location.z += 0.5
+                
+                # 4. 在正前方 30 米处生成测试靶标
+                target_waypoint = target_wp.next(15.0)[0]
+                break
                     
         if not ego_spawn_point:
             print("⚠️ 没找到完美的超长直道，将就用默认点。")
             ego_spawn_point = spawn_points[0]
-            target_waypoint = world.get_map().get_waypoint(ego_spawn_point.location).next(40.0)[0]
+            target_waypoint = world.get_map().get_waypoint(ego_spawn_point.location).next(15.0)[0]
 
         # 2. 生成主车
         ego_vehicle = world.try_spawn_actor(vehicle_bp, ego_spawn_point)
@@ -131,14 +164,20 @@ def main():
             prev_key_q = False
 
             vision_aeb_active = False 
-            was_aeb_active = False 
+            was_aeb_active = False
+            acc_sys = ACCController()
 
             running = True
             while running:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
-                        
+                
+                if choice != '2':
+                    dummy_target.set_autopilot(True)
+                    tm = client.get_trafficmanager()
+                    tm.ignore_lights_percentage(dummy_target, 100)
+                    tm.vehicle_percentage_speed_difference(dummy_target, 50.0)        
                 if keyboard.is_pressed('esc'):
                     running = False
 
@@ -161,57 +200,92 @@ def main():
                 curr_a = keyboard.is_pressed('a')
                 curr_d = keyboard.is_pressed('d')
 
+                # ==========================================
+                # 1. 获取当前主车车速
+                # ==========================================
                 v = ego_vehicle.get_velocity() 
                 speed_m_s = math.sqrt(v.x**2 + v.y**2 + v.z**2) 
                 current_speed_kmh = speed_m_s * 3.6 
-                error = target_speed_kmh - current_speed_kmh
 
-                if target_speed_kmh > 0:
+                # ==========================================
+                # 2. 视觉感知与 ACC 状态判定
+                # ==========================================
+                vision_aeb_active = False
+                min_dist = float('inf')
+                obstacle_side = None
+                is_following = False
+
+                if vision_system:
+                    _, min_dist, obstacle_side = vision_system.process_and_render()
+                    
+                    active_target_speed = target_speed_kmh
+                    # 先让 ACC 计算速度，看看前车是死是活
+                    if min_dist != float('inf') and not lane_planner.is_changing_lane:
+                        active_target_speed = acc_sys.update_target_speed(min_dist, current_speed_kmh, target_speed_kmh)
+                        # 🌟 核心：如果前车速度 > 5km/h，判定为活车，开启跟车模式！
+                        if hasattr(acc_sys, 'lead_speed_kmh') and acc_sys.lead_speed_kmh > 5.0:
+                            is_following = True
+
+                # ==========================================
+                # 3. 规划与横向控制 (决定是否变道)
+                # ==========================================
+                if vision_system:
+                    safe_dist = min_dist if min_dist != float('inf') else 100.0
+                    # 🌟 传入 is_following 标志位。如果是跟车，规划器会放弃变道，老老实实保持车道！
+                    planner_steer = lane_planner.get_lateral_control(safe_dist, current_speed_kmh, obstacle_side, is_following)
+                    
+                    if not is_reverse and planner_steer is not None:
+                        control.steer = planner_steer
+
+                # ==========================================
+                # 4. 纵向速度管理 (变道限速与恢复)
+                # ==========================================
+                if lane_planner.is_changing_lane and not is_reverse and not control.hand_brake:
+                    if saved_target_speed is None:
+                        saved_target_speed = target_speed_kmh 
+                    active_target_speed = 15.0  # 变道慢行
+                    control.brake = 0.0
+                else:
+                    if saved_target_speed is not None:
+                        target_speed_kmh = saved_target_speed
+                        saved_target_speed = None
+                        active_target_speed = target_speed_kmh
+
+                # ==========================================
+                # 5. 底层 PI 速度控制器 (计算油门和刹车)
+                # ==========================================
+                error = active_target_speed - current_speed_kmh
+
+                if active_target_speed > 0:
                     error_sum = max(min(error_sum + error, 40.0), -40.0) 
                 else:
                     error_sum = 0.0
 
-                if target_speed_kmh == 0.0:
+                if active_target_speed == 0.0:
                     control.throttle, control.brake = 0.0, 0.2 if current_speed_kmh > 0.5 else 1.0
                 elif error > 0:
                     control.throttle, control.brake = min(max((error * Kp) + (error_sum * Ki), 0.0), 0.75), 0.0
                 else:
                     control.throttle, control.brake = 0.0, min(max((-error * Kp) - (error_sum * Ki), 0.0), 0.5)
 
+                # ==========================================
+                # 6. 紧急制动 AEB 兜底 (只对静止障碍物生效)
+                # ==========================================
+                if min_dist != float('inf'):
+                    braking_dist = (speed_m_s ** 2) / (2 * 6.0) + 3.0
+                    # 如果距离极近，且没在变道，且不是在跟车(如果是跟车，ACC会柔和减速而不是直接抱死)，触发 AEB
+                    if min_dist < braking_dist and not lane_planner.is_changing_lane and not is_following:
+                        vision_aeb_active = True
+                        control.throttle = 0.0
+                        control.brake = 1.0
+
                 if curr_space or collision_flag[0]:
-                    control.hand_brake, control.throttle, control.brake, target_speed_kmh, error_sum = True, 0.0, 1.0, 0.0, 0.0             
+                    control.hand_brake, control.throttle, control.brake = True, 0.0, 1.0
+                    target_speed_kmh = 0.0
+                    error_sum = 0.0             
                 else:
                     control.hand_brake = False
-
-                # ==========================================
-                # 🌟 核心：感知、规划与控制
-                # ==========================================
-                vision_aeb_active = False
-                
-                if vision_system:
-                    # 1. 视觉感知：获取最近障碍物距离
-                    _, min_dist, obstacle_side = vision_system.process_and_render()
                     
-                    safe_dist = min_dist if min_dist != float('inf') else 100.0
-                    planner_steer = lane_planner.get_lateral_control(safe_dist, current_speed_kmh, obstacle_side)
-                    
-                    if not is_reverse and planner_steer is not None:
-                        control.steer = planner_steer
-                        
-                    if lane_planner.is_changing_lane and not is_reverse and not control.hand_brake:
-                        if saved_target_speed is None:
-                            saved_target_speed = target_speed_kmh
-                            
-                        target_speed_kmh = 15.0
-                        control.brake = 0.0
-                    else:
-                        if saved_target_speed is not None:
-                            target_speed_kmh = saved_target_speed
-                            saved_target_speed = None
-                    if min_dist != float('inf'):
-                        # 计算当前车速下的安全制动距离 (公式：v²/2a + 反应距离)
-                        braking_dist = (speed_m_s ** 2) / (2 * 6.0) + 3.0
-                
                 was_aeb_active = vision_aeb_active
                 # ==========================================
 
