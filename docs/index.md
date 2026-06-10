@@ -54,6 +54,8 @@ title: 主页
 
 [机器人仿真(MuJoCo)](ant_robot/机器人仿真系统.md)
 
+[__机械臂仿真系统__](arm_sim.md) - 基于MuJoCo的机械臂仿真与功能优化
+
 ---
 ## 感知 <span id="perception"></span>
 
@@ -165,7 +167,7 @@ title: 主页
 - [__强化学习__](RL.md) - 强化学习基础
 
 - [__机器人仿真__](ant_robot/机器人仿真系统.md) - MuJoCo机器人仿真
-
+- [__机械臂仿真系统__](arm_sim.md) - 基于MuJoCo的机械臂仿真与功能优化 
 
 
 [__基于深度学习置信度加权的自动驾驶雨天多传感器融合感知优化__](rain_sensor_fusion\DEMO_REPORT.md)
@@ -235,4 +237,3 @@ title: 主页
 >>>>>>> ebacb9ab55185c039bacca159efd32b9ac410824
 
 [PID](#pid)
-
