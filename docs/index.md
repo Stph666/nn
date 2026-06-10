@@ -220,7 +220,8 @@ title: 主页
 
 ## 控制  <span id="control"></span>
 
-
+[PID](#pid)
+[__CARLA IMU 数据采集平台__](./carla_imu/carla_imu.md) — CARLA惯性测量单元数据采集与可视化驾驶平台开发汇报文档
 
 [PID](#pid)
 
