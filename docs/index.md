@@ -100,6 +100,8 @@ title: 主页
 
 [__PilotNet自动驾驶系统__](./pilotnet/index.md) - 基于NVIDIA PilotNet架构的端到端自动驾驶学习系统
 
+[__CARLA自动驾驶系统__](carla_ad_gym_rl/carla_ad_gym_rl.md) - CARLA 仿真与强化学习的自动驾驶智能决策系统
+
 ## 控制  <span id="control"></span>
 
 [__无人机飞行控制__](./UVA_flight_control_system.md) - 基于AirSim的无人机飞行控制系统
