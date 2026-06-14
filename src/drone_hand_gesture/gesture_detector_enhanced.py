@@ -79,6 +79,9 @@ class EnhancedGestureDetector:
             "swipe_right": "right",
             "swipe_up": "forward",
             "swipe_down": "backward",
+            # 紧急返航手势
+            "rock": "return_home",        # 摇滚手势 (食指+小指) -> 一键返航
+            "peace": "return_home",       # 和平手势 (食指+中指) -> 一键返航（备用）
         }
 
         # 滑动手势相关
