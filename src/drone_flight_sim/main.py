@@ -40,37 +40,35 @@ def auto_flight_mode(drone):
 
     time.sleep(1)
 
-    # ===== 定义大范围飞行航点列表 =====
-    # 注意：AirSim 中 Z 轴向下为正，所以负值表示向上飞行
-    # 飞行高度设为 -5 米，起飞高度也设为 -5 米
-    waypoints = [
-        (20, 0, -5),  # 航点1：向右飞行 10 米
-        (10, -20, -5),  # 航点2：向前飞行 10 米
-        (0, -10, -5),  # 航点3：向左飞行 10 米
-        (0, 0, -5),  # 航点4：向后飞行 10 米，回到原点
-        (-20, 0, -5),  # 航点5：继续向左飞行
-        (-10, -10, -5),  # 航点6：继续向前飞行
-        (10, -10, -5),  # 航点7：回到右侧
-        (10, 10, -5),  # 航点8：向上飞行
-        (-10, 10, -5),  # 航点9：向左飞行
-        (-10, 0, -5),  # 航点10：向后飞行
-        (0, 0, -5),  # 航点11：回到原点
-    ]
+   # 使用 FlightPath 中定义的三角形路径
+    waypoints = FlightPath.triangle_path(size=15, height=-5)
+   
+   # ===== 新增：任务总览 =====
+    total = len(waypoints)
+    print(f"\n📋 任务总览:")
+    print(f"   总航点数: {total}")
+    for idx, (x, y, z) in enumerate(waypoints, 1):
+        print(f"   航点{idx}: ({x:.1f}, {y:.1f}, {z:.1f})")
+    print(f"{'=' * 40}\n")
 
     # 打印飞行路径信息
     FlightPath.print_path(waypoints)
 
     # ===== 执行飞行任务阶段 =====
     manual_takeover = False
+    completed = 0  # 新增：已完成的航点数量
 
     for i, (x, y, z) in enumerate(waypoints, 1):
+        remaining = total - i
         print(f"\n{'=' * 40}")
-        print(f"第 {i} 段飞行 -> 目标: ({x}, {y}, {z})")
+        print(f"📍 航点 {i}/{total} -> ({x}, {y}, {z})")
+        print(f"   剩余: {remaining} 个航点 | 已完成: {completed} 个")
         print(f"{'=' * 40}")
 
         # 飞向当前航点，速度 3 m/s
         success = drone.fly_to_position(x, y, z, velocity=3)
-
+        print(f"📍 飞行结果: {'✅ 成功' if success else '❌ 失败'}")
+        
         if not success:
             # 发生碰撞，尝试自动恢复
             print("\n⚠️  检测到碰撞，开始自动恢复...")
@@ -102,7 +100,8 @@ def auto_flight_mode(drone):
                     break
 
         # 到达航点后拍照
-        print(f"\n📷 航点 {i} 拍照...")
+        completed += 1  # 新增：完成计数
+        print(f"\n📷 航点 {i} 拍照... (进度: {completed}/{total})")
         drone.capture_image()
 
         time.sleep(1)
