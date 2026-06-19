@@ -44,6 +44,7 @@ class AutoCollisionCollector:
         self.target_samples = target_samples
         self.safe_samples = 0
         self.danger_samples = 0
+        self.collision_positions = []
         self.last_safe_capture_time = 0
         self.safe_capture_interval = 2.0  # 安全样本采集间隔(秒)
 
@@ -209,6 +210,11 @@ class AutoCollisionCollector:
 
             # 检测新的碰撞事件
             if self.check_collision_event():
+                pos = self.get_position()
+
+                self.collision_positions.append(
+                    (pos.x_val, pos.y_val, pos.z_val)
+                )
                 if self.danger_samples < self.target_samples:
                     print(f"\n💥 碰撞！采集危险样本 ({self.danger_samples + 1}/{self.target_samples})")
                     self.capture_sample(1, "collision")
@@ -520,7 +526,17 @@ class AutoCollisionCollector:
             'safe_ratio': safe_ratio,
             'danger_ratio': danger_ratio
         }
+    def save_collision_log(self):
+        log_file = os.path.join(
+            self.output_dir,
+            "collision_positions.csv"
+        )
 
+        with open(log_file, "w") as f:
+            f.write("x,y,z\n")
+
+            for x, y, z in self.collision_positions:
+                f.write(f"{x:.2f},{y:.2f},{z:.2f}\n")      
 
 def select_mode():
     """交互式选择飞行模式"""
@@ -618,6 +634,7 @@ def main():
         print(f"   安全样本占比: {stats['safe_ratio']:.1f}%")
         print(f"   危险样本占比: {stats['danger_ratio']:.1f}%")
         print(f"   数据保存: {collector.labels_file}")
+        collector.save_collision_log()
         print("=" * 50)
 
 
