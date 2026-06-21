@@ -447,6 +447,12 @@ class SimpleDrivingSystem:
         # 车灯控制相关
         self.headlights_on = False  # 车灯是否开启
         self.auto_headlights = True  # 自动车灯模式
+        # GPS相关
+        self.gps_sensor = None  # GPS传感器
+        self.gps_data = None  # GPS数据
+        self.gps_latitude = 0.0  # 纬度
+        self.gps_longitude = 0.0  # 经度
+        self.gps_altitude = 0.0  # 高度
 
     def connect(self):
         """连接到CARLA服务器"""
@@ -770,6 +776,39 @@ class SimpleDrivingSystem:
             self.headlights_on = should_be_on
             self._apply_headlights()
 
+    def _setup_gps_sensor(self):
+        """设置GPS传感器"""
+        blueprint_library = self.world.get_blueprint_library()
+        gps_bp = blueprint_library.find('sensor.other.gnss')
+        
+        # 设置GPS传感器参数
+        gps_bp.set_attribute('noise_alt_stddev', '0.0')
+        gps_bp.set_attribute('noise_lat_stddev', '0.0')
+        gps_bp.set_attribute('noise_lon_stddev', '0.0')
+        
+        # 安装在车辆顶部
+        gps_transform = carla.Transform(carla.Location(x=0.0, y=0.0, z=2.0))
+        
+        self.gps_sensor = self.world.spawn_actor(gps_bp, gps_transform, attach_to=self.vehicle)
+        self.gps_sensor.listen(lambda data: self._process_gps_data(data))
+        
+        print("GPS传感器已启用")
+
+    def _process_gps_data(self, data):
+        """处理GPS数据"""
+        self.gps_data = data
+        self.gps_latitude = data.latitude
+        self.gps_longitude = data.longitude
+        self.gps_altitude = data.altitude
+
+    def get_gps_coordinates(self):
+        """获取GPS坐标"""
+        return {
+            'latitude': self.gps_latitude,
+            'longitude': self.gps_longitude,
+            'altitude': self.gps_altitude
+        }
+
     def run(self):
         """主运行循环"""
         print("\n" + "=" * 50)
@@ -813,6 +852,9 @@ class SimpleDrivingSystem:
 
         # 初始化碰撞传感器
         self._setup_collision_sensor()
+
+        # 初始化GPS传感器
+        self._setup_gps_sensor()
 
         # 生成一些NPC车辆
         self.spawn_npc_vehicles(2)
@@ -1000,6 +1042,15 @@ class SimpleDrivingSystem:
                                 (start_x, start_y + 90), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.7, (255, 255, 0) if self.headlights_on else (128, 128, 128), 2)
 
+                    # 显示GPS坐标
+                    gps_coords = self.get_gps_coordinates()
+                    cv2.putText(display_img, f"GPS: {gps_coords['latitude']:.6f}",
+                                (start_x, start_y + 120), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.6, (255, 200, 100), 2)  # 橙色显示纬度
+                    cv2.putText(display_img, f"     {gps_coords['longitude']:.6f}",
+                                (start_x, start_y + 145), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.6, (255, 200, 100), 2)  # 橙色显示经度
+
                     cv2.imshow('Autonomous Driving - Simple Version', display_img)
 
                 # 处理按键
@@ -1150,6 +1201,15 @@ class SimpleDrivingSystem:
                 self.collision_sensor.stop()
                 self.collision_sensor.destroy()
                 print("碰撞传感器已销毁")
+            except:
+                pass
+
+        # 清理GPS传感器
+        if self.gps_sensor:
+            try:
+                self.gps_sensor.stop()
+                self.gps_sensor.destroy()
+                print("GPS传感器已销毁")
             except:
                 pass
 
