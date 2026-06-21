@@ -101,6 +101,7 @@ title: 主页
 - [__car_navigation_system__](./car_navigation_system/README.md) - 多模态CARLA导航避障系统
 
 - [__CARLA 多传感器自动驾驶仿真平台__](./carla_multisensor_platform/carla_multisensor_platform.md) - 基于CARLA 0.9.15构建的多传感器融合自动驾驶仿真与数据采集平台
+- [__双足机器人行走__](./bipedal_walker_rl/README.md)- 基于 PPO 强化学习的双足机器人平衡与自主行走仿真项目
 
 - [__CARLA 多车辆跟踪系统__](./carla_multi_tracking/README.md) -CARLA 多车辆跟踪系统
 
