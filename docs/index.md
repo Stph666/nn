@@ -109,6 +109,7 @@ title: 主页
 
 - [__CARLA中的交通标志检测与车辆控制__](maintaining_sign_boards/maintaining_sign_boards.md) - CARLA中的交通标志检测与车辆控制
 
+- [__CARLA车辆车载HUD可视化显示系统__](./vehicle_HUD/README.md) - CARLA仿真环境下车辆车载HUD信息实时可视化展示平台
 
 [_交通拥堵仿真与智能调控_](./lidar_project/README.md) - 基于 CARLA 与强化学习的多模型融合交通拥堵仿真与智能调控系统
 
